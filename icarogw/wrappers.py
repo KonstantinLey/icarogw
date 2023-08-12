@@ -833,6 +833,19 @@ class massprior_MultiPeak_NSBH(source_mass_default):
                                              kwargs['mu_g_high'],kwargs['sigma_g_high'],kwargs['mmin'],kwargs['mu_g_high']+5*kwargs['sigma_g_high']),kwargs['delta_m'])
         p2=SmoothedProb(PowerLaw(kwargs['mmin_NS'],kwargs['mmax_NS'],kwargs['beta']),kwargs['delta_m_NS'])
         self.prior=conditional_2dimpdf(p1,p2)
+
+class massprior_NormalizingFlow(source_mass_default):
+    def __init__(self, n_bins = 7):
+        self.population_parameters=['mmin','mmax','beta']
+        self.slope_parameter_list = ['slope_' + str(i) for i in range(n_bins)]
+        self.population_parameters += self.slope_parameter_list
+    def update(self,**kwargs):
+        kwargs_slope_parameters = [kwargs[key] for key in self.slope_parameter_list]
+        
+        p1 = NormalizingFlow1d(kwargs['mmin'],kwargs['mmax'],kwargs_slope_parameters)
+        p2 = PowerLaw(kwargs['mmin'],kwargs['mmax'],kwargs['beta'])
+        
+        self.prior=conditional_2dimpdf(p1,p2)
         
 class spinprior_default(object):
     def __init__(self):

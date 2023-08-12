@@ -1,6 +1,10 @@
 from .cupy_pal import *
 from .conversions import L2M, M2L
 import copy
+import scipy
+from scipy.interpolate import CubicHermiteSpline
+import matplotlib.pyplot as plt
+
 
 def betadistro_muvar2ab(mu,var):
     '''
@@ -895,3 +899,184 @@ class absL_PL_inM(basic_1dimpdf):
         toret=xp.log(1.-self.L_PL_CDF.cdf(M2L(M)))
         return toret
       
+
+
+class SplineWrapper():
+
+    def __init__(self, slope_list_in, x_range = 3):
+
+        if(len(slope_list_in) % 2 == 0):
+            print("Warning, it is better to choose an uneven number of spline points.")
+
+        self.slope_list = np.array(slope_list_in)
+        
+        SPLINE_OFFSET_SLOPE = 1/2
+
+        self.SPLINE_OFFSET_SLOPE = SPLINE_OFFSET_SLOPE
+
+        self.x_range_min = - x_range
+        self.x_range_max = x_range
+
+        self.n_bins = len(self.slope_list)
+
+        self.spline = self.generate_spline_from_slope_list(
+            self.slope_list
+        )
+        self.y_range_min = self.spline(self.x_range_min)
+        self.y_range_max = self.spline(self.x_range_max)
+
+        self.spline_derivative = self.spline.derivative()
+
+        self.spline_inv = self.get_inverse_from_spline()
+
+    def generate_spline_from_slope_list(self, slope_list):
+        
+        x_points = np.linspace(self.x_range_min, self.x_range_max, self.n_bins)
+        self.delta_x = x_points[1] - x_points[0]
+        
+        dy_dx = slope_list + self.SPLINE_OFFSET_SLOPE
+        
+        # normalization so that the spline has an average slope of of 1
+        dy_dx /= np.sum(dy_dx) / self.n_bins
+        
+        # initiliaze the location of the spline points, with the first element
+        # equal to the x_points
+        y_points = copy.copy(x_points)
+        for i in range(1, self.n_bins):
+            y_points[i] = y_points[i-1] + self.delta_x * dy_dx[i-1]
+        
+        # normalize the spline, such that the middle is mapped to zero
+        y_points -= y_points[int((self.n_bins - 1)/2)]
+        
+        spline = CubicHermiteSpline(x_points, y_points, dydx = dy_dx, extrapolate = 0)
+    
+        return spline
+
+    def get_inverse_from_spline(self):
+
+        x_vals = np.linspace(self.x_range_min, self.x_range_max, 10_000)
+        y_vals = self.spline(x_vals)
+
+        return scipy.interpolate.interp1d(y_vals, x_vals, bounds_error = False, fill_value=0)
+
+    def plot(self):
+
+        x_vals = np.linspace(self.x_range_min, self.x_range_max, 1_000)
+        y_vals = self.spline(x_vals)
+
+        plt.plot(x_vals, y_vals)
+        plt.show()
+
+    def plot_check_inverse(self):
+
+        x_vals = np.linspace(self.x_range_min, self.x_range_max, 1_000)
+        y_vals = self.spline(x_vals)
+
+        x_vals_test = self.spline_inv(y_vals)
+
+        plt.title('difference between spline identity - id')
+        plt.plot(x_vals, x_vals_test - x_vals)
+        plt.show()
+
+
+
+def log_prob_of_standard_normal_distribution(x):
+    return - x ** 2 / 2 - 1 / 2 * np.log(np.pi * 2)
+
+def linear_function_with_jacobian(z, target_min, target_max, z_minimum, z_maximum,):
+    """
+    Linearly maps z from the domain (z_minimum, z_maximum) to the target domain). 
+    
+    
+    """
+    
+    # Calculate the normalized value of z within the output range
+    normalized_z = (z - z_minimum) / (z_maximum - z_minimum)
+
+    # Map the normalized value to the input range
+    mapped_value = target_min + normalized_z * (target_max - target_min)
+
+    jacobian = (z_maximum - z_minimum) / (target_max - target_min)
+
+    return mapped_value, jacobian
+
+
+class NormalizingFlow1d(basic_1dimpdf):
+    
+    def __init__(self, dist_min, dist_max, slope_list, x_range = 3):
+        '''
+        Class for a  normalizing flow 1d probability
+        
+        Parameters
+        ----------
+        dist_min,dist_max: float
+            Minimum, Maximum of the distribution
+        '''
+        super().__init__(dist_min,dist_max)
+        self.dist_min, self.dist_max = dist_min, dist_max
+        self.slope_list = slope_list
+        self.x_range = x_range
+
+        # define normalization, since we are cutting the distribution at x_range sigma
+        self.norm = 1 / (scipy.special.erf(self.x_range / np.sqrt(2)))
+
+        self.spline_wrapper = SplineWrapper(self.slope_list, x_range = x_range)
+        
+    def _log_pdf(self,m):
+        '''
+        Evaluates the log_pdf
+        
+        Parameters
+        ----------
+        m: xp.array
+            where to evaluate the log_pdf
+        
+        Returns
+        -------
+        log_pdf: xp.array
+        '''
+        # stretch or squeeze the mass such that it is mapped to the distribution's minimum or maximum
+        y, jac_linear = self.m_to_y_with_jacobian(m)
+        log_jac_linear = np.log(abs(jac_linear))
+        
+        # compute the base x values
+        x_base = self.spline_wrapper.spline_inv(y)
+
+        log_jacobian = np.log(abs(self.spline_wrapper.spline_derivative(x_base))) + log_jac_linear
+        log_pdf = log_prob_of_standard_normal_distribution(x_base) - log_jacobian + np.log(self.norm)
+        
+        return log_pdf
+    
+    def _log_cdf(self,m):
+        '''
+        Evaluates the log_cdf
+        
+        Parameters
+        ----------
+        x: xp.array
+            where to evaluate the log_cdf
+        
+        Returns
+        -------
+        log_cdf: xp.array
+        '''
+
+        # stretch or squeeze the mass such that it is mapped to the distribution's minimum or maximum
+        y, _ = self.m_to_y_with_jacobian(m)
+
+        x_base = self.spline_wrapper.spline_inv(y)
+
+        cdf = 1/2 * (1 + scipy.special.erf(x_base / np.sqrt(2))) * self.norm
+
+        # account for the cut in the Gaussian distribution
+        cdf = np.where(x_base < - self.x_range, 0, cdf)
+        cdf = np.where(x_base > self.x_range, 1, cdf)        
+        
+        log_cdf = np.log(cdf)
+        return log_cdf
+
+    def m_to_y_with_jacobian(self, m):
+    
+        return linear_function_with_jacobian(
+            m, self.spline_wrapper.y_range_min, self.spline_wrapper.y_range_max, self.dist_min, self.dist_max, 
+        )
