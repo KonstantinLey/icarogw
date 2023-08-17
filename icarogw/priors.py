@@ -1080,3 +1080,109 @@ class NormalizingFlow1d(basic_1dimpdf):
         return linear_function_with_jacobian(
             m, self.spline_wrapper.y_range_min, self.spline_wrapper.y_range_max, self.dist_min, self.dist_max, 
         )
+
+
+
+def linear_function(slope, offset_x, offset_y):
+    return lambda x: slope * (x - offset_x) + offset_y
+
+class piecewise_constant_distribution_normalized():
+
+    def __init__(self, dist_min, dist_max, weights):
+
+        self.dist_min, self.dist_max = dist_min, dist_max
+        self.n_bins = len(weights)
+    
+        self.weights_with_boundaries = np.array([0] + weights + [0])
+    
+        self.bins = np.linspace(self.dist_min, self.dist_max, self.n_bins + 1)
+        bins_with_boundaries = np.insert(self.bins, 0, -np.inf)
+        self.bins_with_boundaries = np.append(bins_with_boundaries, np.inf)
+    
+        # compute normalization
+        self.delta_bin = self.bins[1] - self.bins[0]
+        self.norm = 1 / np.sum(weights) * 1 / self.delta_bin
+
+        self.weights_with_boundaries_normalized = self.norm * self.weights_with_boundaries
+        self.cumulated_normalized_weights = np.cumsum(self.weights_with_boundaries_normalized)
+
+    def get_conditions(self, x):
+        return [np.array(self.bins_with_boundaries[i] <= x) * np.array(x < self.bins_with_boundaries[i+1]) for i in range(self.n_bins + 2)]
+    
+    def pdf(self, x):
+
+        self.conditions = self.get_conditions(x)
+        self.pdf_func = lambda x1: np.piecewise(x1, self.conditions, self.weights_with_boundaries_normalized)
+    
+        return self.pdf_func(x)
+
+    def cdf(self, x):
+
+        self.conditions = self.get_conditions(x)
+
+        self.linear_functions = [
+            linear_function(
+                slope = self.weights_with_boundaries_normalized[i + 1],
+                offset_x = self.bins[i],
+                offset_y = self.cumulated_normalized_weights[i] * self.delta_bin
+            ) for i in range(self.n_bins)
+        ]
+                
+        self.linear_functions = [0] + self.linear_functions + [1]
+        self.cdf_func = lambda x1: np.piecewise(x1, self.conditions, self.linear_functions)
+    
+        return self.cdf_func(x)
+
+
+class BinModel1d(basic_1dimpdf):
+    
+    def __init__(self, dist_min, dist_max, bin_list):
+        '''
+        Class for a  normalizing flow 1d probability
+        
+        Parameters
+        ----------
+        dist_min,dist_max: float
+            Minimum, Maximum of the distribution
+        '''
+        super().__init__(dist_min,dist_max)
+        self.dist_min, self.dist_max = dist_min, dist_max
+        self.bin_list = bin_list
+
+        self.distribution = piecewise_constant_distribution_normalized(self.dist_min, self.dist_max, self.bin_list)
+        
+    def _log_pdf(self,x):
+        '''
+        Evaluates the log_pdf
+        
+        Parameters
+        ----------
+        m: xp.array
+            where to evaluate the log_pdf
+        
+        Returns
+        -------
+        log_pdf: xp.array
+        '''
+        
+        log_pdf = np.log(self.distribution.pdf(x))
+        
+        return log_pdf
+    
+    def _log_cdf(self,x):
+        '''
+        Evaluates the log_cdf
+        
+        Parameters
+        ----------
+        x: xp.array
+            where to evaluate the log_cdf
+        
+        Returns
+        -------
+        log_cdf: xp.array
+        '''
+
+        cdf = self.distribution.cdf(x)
+        log_cdf = np.log(cdf)
+        return log_cdf

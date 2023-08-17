@@ -846,6 +846,19 @@ class massprior_NormalizingFlow(source_mass_default):
         p2 = PowerLaw(kwargs['mmin'],kwargs['mmax'],kwargs['beta'])
         
         self.prior=conditional_2dimpdf(p1,p2)
+
+class massprior_BinModel(source_mass_default):
+    def __init__(self, n_bins):
+        self.population_parameters=['mmin','mmax','beta']
+        self.bin_parameter_list = ['bin_' + str(i) for i in range(n_bins)]
+        self.population_parameters += self.bin_parameter_list
+    def update(self,**kwargs):
+        kwargs_slope_parameters = [kwargs[key] for key in self.bin_parameter_list]
+        
+        p1 = BinModel1d(kwargs['mmin'],kwargs['mmax'],kwargs_slope_parameters)
+        p2 = PowerLaw(kwargs['mmin'],kwargs['mmax'],kwargs['beta'])
+        
+        self.prior=conditional_2dimpdf(p1,p2)
         
 class spinprior_default(object):
     def __init__(self):
