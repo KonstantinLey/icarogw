@@ -865,7 +865,7 @@ class massprior_BinModel2dMargin(source_mass_default):
         self.population_parameters=['mmin','mmax']
         self.bin_m1_parameter_list = ['bin_m1_' + str(i) for i in range(n_bins)]
         self.bin_m2_parameter_list = ['bin_m2_' + str(i) for i in range(n_bins)]
-        self.population_parameters += self.bin_m1_parameter_list + self.bin_m1_parameter_list
+        self.population_parameters += self.bin_m1_parameter_list + self.bin_m2_parameter_list
     def update(self,**kwargs):
         kwargs_bin_m1_parameters = [kwargs[key] for key in self.bin_m1_parameter_list]
         kwargs_bin_m2_parameters = [kwargs[key] for key in self.bin_m2_parameter_list]
@@ -874,6 +874,7 @@ class massprior_BinModel2dMargin(source_mass_default):
         p2 = BinModel1d(kwargs['mmin'],kwargs['mmax'],kwargs_bin_m2_parameters)
         
         self.prior=conditional_2dimpdf(p1,p2)
+
         
 class spinprior_default(object):
     def __init__(self):
