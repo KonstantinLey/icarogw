@@ -860,21 +860,22 @@ class massprior_BinModel(source_mass_default):
         
         self.prior=conditional_2dimpdf(p1,p2)
 
-class massprior_BinModel2dMargin(source_mass_default):
-    def __init__(self, n_bins):
+class massprior_BinModel2d(source_mass_default):
+    def __init__(self, n_bins_1d):
         self.population_parameters=['mmin','mmax']
-        self.bin_m1_parameter_list = ['bin_m1_' + str(i) for i in range(n_bins)]
-        self.bin_m2_parameter_list = ['bin_m2_' + str(i) for i in range(n_bins)]
-        self.population_parameters += self.bin_m1_parameter_list + self.bin_m2_parameter_list
+        n_bins_total = int(n_bins_1d * (n_bins_1d + 1) / 2)
+        self.bin_parameter_list = ['bin_' + str(i) for i in range(n_bins_total)]
+        self.population_parameters += self.bin_parameter_list
     def update(self,**kwargs):
-        kwargs_bin_m1_parameters = [kwargs[key] for key in self.bin_m1_parameter_list]
-        kwargs_bin_m2_parameters = [kwargs[key] for key in self.bin_m2_parameter_list]
+        kwargs_bin_parameters = [kwargs[key] for key in self.bin_parameter_list]
         
-        p1 = BinModel1d(kwargs['mmin'],kwargs['mmax'],kwargs_bin_m1_parameters)
-        p2 = BinModel1d(kwargs['mmin'],kwargs['mmax'],kwargs_bin_m2_parameters)
+        pdf_dist = piecewise_constant_2d_distribution_normalized(
+            kwargs['mmin'], 
+            kwargs['mmax'],
+            kwargs_bin_parameters
+        )
         
-        self.prior=conditional_2dimpdf(p1,p2)
-
+        self.prior=pdf_dist
         
 class spinprior_default(object):
     def __init__(self):
